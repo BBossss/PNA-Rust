@@ -14,3 +14,5 @@ clap = { version = "3.0", features = ["derive"] }
 tempfile = "3.3.0"
 walkdir = "2.3.2"
 failure = "0.1.8"
+serde = { version = "1.0.89", features = ["derive"] }
+serde_json = "1.0.39"
