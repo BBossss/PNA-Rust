@@ -1,8 +1,12 @@
 use std::collections::{BTreeMap, HashMap};
+use std::ffi::OsStr;
+use std::fs::{OpenOptions, self};
+use std::path::Path;
 use std::{path::PathBuf, ops::Range, fs::File};
 use std::io::{self, Read, Seek, BufReader, SeekFrom, Write, BufWriter};
 use failure::Fail;
 use serde::{Deserialize, Serialize};
+use serde_json::Deserializer;
 
 /// The `KvStore` stores string key/value pairs.
 ///
@@ -29,6 +33,40 @@ pub struct KvStore {
 }
 
 impl KvStore {
+    /// Opens a `KvStore` with the given path
+    /// 
+    /// This will create a new directory if the given one does not exist.
+    /// 
+    /// # Errors
+    /// 
+    /// It propagates I/O or deserialization errors during the log replay.
+    pub fn open(path: impl Into<PathBuf>) -> Result<KvStore> {
+        let path = path.into();
+        fs::create_dir_all(&path)?;
+
+        let mut readers = HashMap::new();
+        let mut index = BTreeMap::new();
+
+        let gen_list = sorted_gen_list(&path)?;
+        
+        for &gen in &gen_list {
+            let mut reader = BufReaderWithPos::new(File::open(log_path(&path, gen))?)?;
+            load(gen, &mut reader, &mut index)?;
+            readers.insert(gen, reader);
+        }
+
+        let current_gen = gen_list.last().unwrap_or(&0) + 1;
+        let writer = new_log_file(&path, current_gen, &mut readers)?;
+
+        Ok(KvStore {
+            path,
+            writer,
+            current_gen,
+            index,
+            readers,
+        })
+    }
+
     /// Sets the value of the string key to a string.
     ///
     /// Return an error if the value is not written successfully.
@@ -82,12 +120,65 @@ impl KvStore {
         }
         
     }
-
-    pub fn open(path: impl Into<PathBuf>) -> Result<KvStore> {
-        unimplemented!();
-    }
 }
 
+/// Create a new log file with given generation number and add the reader to the readers map
+/// 
+/// Return the writer to the log 
+fn new_log_file(
+    path: &Path, 
+    gen: u64, 
+    readers: &mut HashMap<u64, BufReaderWithPos<File>>
+) -> Result<BufWriterWithPos<File>> {
+    let path = log_path(&path, gen);
+    let writer = BufWriterWithPos::new(
+        OpenOptions::new()
+            .create(true)
+            .write(true)
+            .append(true)
+            .open(&path)?
+    )?;
+    readers.insert(gen, BufReaderWithPos::new(File::open(&path)?)?);
+    Ok(writer)
+}
+
+fn log_path(path: &Path, gen: u64) -> PathBuf {
+    path.join(format!("{}.log", gen))
+}
+
+/// Return sorted generation numbers in the given directory
+fn sorted_gen_list(dir: &Path) -> Result<Vec<u64>> {
+    let mut gen_list: Vec<u64> = fs::read_dir(&dir)?
+        .flat_map(|res| -> Result<_> { Ok(res?.path()) })
+        .filter(|path| path.is_file() && path.extension() == Some("log".as_ref()))
+        .flat_map(|path| {
+            path.file_name()
+                .and_then(OsStr::to_str)
+                .map(|s| s.trim_end_matches(".log"))
+                .map(str::parse::<u64>)
+        })
+        .flatten()
+        .collect();
+    gen_list.sort_unstable();
+    Ok(gen_list)
+}
+
+/// Load the whole log file and store the value locations in the index map.
+fn load(gen: u64, reader: &mut BufReaderWithPos<File>, index: &mut BTreeMap<String, CommandPos>) -> Result<()> {
+    // to make sure we read from the beginning of the file.
+    let mut pos = reader.seek(SeekFrom::Start(0))?;
+    let mut stream = Deserializer::from_reader(reader).into_iter::<Command>();
+    while let Some(cmd) = stream.next() {
+        let new_pos = stream.byte_offset() as u64;
+        match cmd? {
+            Command::Set { key, .. } => index.insert(key, (gen, pos..new_pos).into()),
+            Command::Remove { key } => index.remove(&key)
+        };
+        pos = new_pos;
+    }
+    
+    Ok(())
+}
 
 /// Error type for Kvstore
 #[derive(Fail, Debug)]
