@@ -8,6 +8,8 @@ use failure::Fail;
 use serde::{Deserialize, Serialize};
 use serde_json::Deserializer;
 
+const COMPACTION_THRESHOLD: u64 = 1024 * 1024;
+
 /// The `KvStore` stores string key/value pairs.
 ///
 /// Key/value pairs are stored in a `HashMap` in memory and not persisted to disk.
@@ -30,6 +32,9 @@ pub struct KvStore {
     index: BTreeMap<String, CommandPos>,
     // map generation number to the file reader.
     readers: HashMap<u64, BufReaderWithPos<File>>,
+    // the number of bytes representing "stale" commands that could be
+    // deleted during a compaction.
+    uncompacted: u64,
 }
 
 impl KvStore {
@@ -48,10 +53,10 @@ impl KvStore {
         let mut index = BTreeMap::new();
 
         let gen_list = sorted_gen_list(&path)?;
-        
+        let mut uncompacted = 0;
         for &gen in &gen_list {
             let mut reader = BufReaderWithPos::new(File::open(log_path(&path, gen))?)?;
-            load(gen, &mut reader, &mut index)?;
+            uncompacted = load(gen, &mut reader, &mut index)?;
             readers.insert(gen, reader);
         }
 
@@ -64,6 +69,7 @@ impl KvStore {
             current_gen,
             index,
             readers,
+            uncompacted
         })
     }
 
@@ -77,7 +83,13 @@ impl KvStore {
         self.writer.flush()?;
 
         if let Command::Set { key, .. } = cmd {
-            self.index.insert(key, (self.current_gen, pos..self.writer.pos).into());
+            if let Some(cmd) = self.index.insert(key, (self.current_gen, pos..self.writer.pos).into()) {
+                self.uncompacted += cmd.len;
+            }
+        }
+
+        if self.uncompacted > COMPACTION_THRESHOLD {
+            self.compact()?;
         }
         
         Ok(())
@@ -112,13 +124,64 @@ impl KvStore {
             self.writer.flush()?;
 
             if let Command::Remove { key} = cmd {
-                self.index.remove(&key);
+                let old_cmd = self.index.remove(&key).expect("key not found");
+                self.uncompacted += old_cmd.len;
             }
             Ok(())
         } else {
             Err(KvsError::KeyNotFound)
         }
+    }
+
+    /// Clears stale entries in the log.
+    fn compact(&mut self) -> Result<()> {
+        // increase current gen by 2. 
+        // current_gen + 1 is for the compaction file.
+        let compaction_gen = self.current_gen + 1;
+        self.current_gen += 2;
+        self.writer = self.new_log_file(self.current_gen)?;
+
+        let mut compaction_writer = self.new_log_file(compaction_gen)?;
+
+        let mut new_pos = 0; // pos in the new log file.
+        for cmd_pos in &mut self.index.values_mut() {
+            let reader = self
+                .readers
+                .get_mut(&cmd_pos.gen)
+                .expect("Can't find log reader");
+            reader.seek(SeekFrom::Start(cmd_pos.pos))?;
+
+            let mut entry_reader = reader.take(cmd_pos.len);
+            let len = io::copy(&mut entry_reader, &mut compaction_writer)?;
+            *cmd_pos = (compaction_gen, new_pos..new_pos + len).into();
+            new_pos += len;
+        }
+
+        compaction_writer.flush()?;
+
+        // remove stable log files.
+        let stale_gens: Vec<_> = self
+            .readers
+            .keys()
+            .filter(|&&gen| gen < compaction_gen)
+            .cloned()
+            .collect();
         
+        for stale_gen in stale_gens {
+            self.readers.remove(&stale_gen);
+            fs::remove_file(log_path(&self.path, stale_gen))?;
+        }
+
+        self.uncompacted = 0;
+
+        Ok(())
+    }
+
+    /// Create a new log file with given generation number and add the readerto the readers map.
+    /// 
+    /// Return the writer to the log.
+    fn new_log_file(&mut self, gen: u64) -> Result<BufWriterWithPos<File>> {
+        new_log_file(&self.path, gen, &mut self.readers)
     }
 }
 
@@ -164,20 +227,32 @@ fn sorted_gen_list(dir: &Path) -> Result<Vec<u64>> {
 }
 
 /// Load the whole log file and store the value locations in the index map.
-fn load(gen: u64, reader: &mut BufReaderWithPos<File>, index: &mut BTreeMap<String, CommandPos>) -> Result<()> {
+fn load(gen: u64, reader: &mut BufReaderWithPos<File>, index: &mut BTreeMap<String, CommandPos>) -> Result<u64> {
     // to make sure we read from the beginning of the file.
     let mut pos = reader.seek(SeekFrom::Start(0))?;
     let mut stream = Deserializer::from_reader(reader).into_iter::<Command>();
+    let mut uncompacted = 0; // number of bytes that can be saved after a compaction.
     while let Some(cmd) = stream.next() {
         let new_pos = stream.byte_offset() as u64;
         match cmd? {
-            Command::Set { key, .. } => index.insert(key, (gen, pos..new_pos).into()),
-            Command::Remove { key } => index.remove(&key)
-        };
+            Command::Set { key, .. } => {
+                if let Some(cmd) = index.insert(key, (gen, pos..new_pos).into()) {
+                    uncompacted += cmd.len;
+                }
+            },
+            Command::Remove { key } => {
+                if let Some(cmd) = index.remove(&key) {
+                    uncompacted += cmd.len;
+                }
+                // the "remove" command itself can be deleted in the next compaction.
+                // so we add its length to `uncompacted`.
+                uncompacted += new_pos - pos;
+            }
+        }
         pos = new_pos;
     }
     
-    Ok(())
+    Ok(uncompacted)
 }
 
 /// Error type for Kvstore
