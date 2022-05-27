@@ -10,18 +10,22 @@ use serde_json::Deserializer;
 
 const COMPACTION_THRESHOLD: u64 = 1024 * 1024;
 
-/// The `KvStore` stores string key/value pairs.
-///
-/// Key/value pairs are stored in a `HashMap` in memory and not persisted to disk.
-///
-/// Example:
-///
+/// The `KvStore` stores string key/value paires.
+/// 
+/// Key/value pairs are persisted in the log file. Log files are named after 
+/// monotonically increasing generation number with a `log` extension name.
+/// A `BTreeMap` in memory stores the keys and values locations for fast query.
+/// 
 /// ```rust
-/// # use kvs::KvStore;
-/// let mut store = KvStore::new();
-/// store.set("key".to_owned(), "value".to_owned());
-/// let val = store.get("key".to_owned());
+/// # use kvs::{KvStore, Result};
+/// # fn try_main() -> Result<()> {
+/// use std::env::current_dir;
+/// let mut store = KvStore::open(current_dir()?)?;
+/// store.set("key".to_owned(), "value".to_owned())?;
+/// let val = store.get("key".to_owned())?;
 /// assert_eq!(val, Some("value".to_owned()));
+/// # Ok(())
+/// # }
 /// ```
 pub struct KvStore {
     // directory for the log and other data.
