@@ -24,7 +24,7 @@ const COMPACTION_THRESHOLD: u64 = 1024 * 1024;
 /// store.set("key".to_owned(), "value".to_owned())?;
 /// let val = store.get("key".to_owned())?;
 /// assert_eq!(val, Some("value".to_owned()));
-/// # Ok(())
+/// # Ok(()) 
 /// # }
 /// ```
 pub struct KvStore {

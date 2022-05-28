@@ -1,8 +1,9 @@
-#![deny(missing_docs)]
 //! A simple key/value store.
 
 pub use error::{KvsError, Result};
-pub use kv::KvStore;
+pub use engines::KvStore;
 
+mod engines;
 mod error;
-mod kv;
+
+pub struct KvsEngine;

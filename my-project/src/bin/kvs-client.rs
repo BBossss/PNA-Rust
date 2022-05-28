@@ -1,6 +1,6 @@
 use std::{process::exit, env::current_dir};
 
-use clap::{Arg, Command};
+use clap::{Arg, Command, arg};
 use kvs::{KvStore, Result, KvsError};
 
 fn main() -> Result<()> {
@@ -16,17 +16,32 @@ fn main() -> Result<()> {
                     Arg::new("VALUE")
                         .help("the string value of the key")
                         .required(true),
+                )
+                .arg(
+                    arg!(--addr <VALUE>)
+                        .required(false)
+                        .default_value("127.0.0.1:4000"),
                 ),
         )
         .subcommand(
             Command::new("get")
                 .about("Get the string value of a given string key")
-                .arg(Arg::new("KEY").help("a string key").required(true)),
+                .arg(Arg::new("KEY").help("a string key").required(true))
+                .arg(
+                    arg!(--addr <VALUE>)
+                        .required(false)
+                        .default_value("127.0.0.1:4000"),
+                ),
         )
         .subcommand(
             Command::new("rm")
                 .about("Remove the given key")
-                .arg(Arg::new("KEY").help("a string key").required(true)),
+                .arg(Arg::new("KEY").help("a string key").required(true))
+                .arg(
+                    arg!(--addr <VALUE>)
+                        .required(false)
+                        .default_value("127.0.0.1:4000"),
+                ),
         )
         .get_matches();
 
@@ -34,12 +49,30 @@ fn main() -> Result<()> {
         Some(("set", matches)) => {
             let key = matches.value_of("KEY").unwrap();
             let value = matches.value_of("VALUE").unwrap();
+            let addr = matches.value_of("addr").unwrap();
+            let addr = match addr.parse::<std::net::SocketAddr>() {
+                Ok(addr) => addr,
+                Err(_) => {
+                    eprintln!("Invalid address: {}", addr);
+                    exit(1);
+                }
+            };
+            println!("{}", addr);
 
             let mut store = KvStore::open(current_dir()?)?;
             store.set(key.to_string(), value.to_string())?;
         }
         Some(("get", matches)) => {
             let key = matches.value_of("KEY").unwrap();
+            let addr = matches.value_of("addr").unwrap();
+            let addr = match addr.parse::<std::net::SocketAddr>() {
+                Ok(addr) => addr,
+                Err(_) => {
+                    eprintln!("Invalid address: {}", addr);
+                    exit(1);
+                }
+            };
+            println!("{}", addr);
 
             let mut store = KvStore::open(current_dir()?)?;
             if let Some(value) = store.get(key.to_string())? {
@@ -51,6 +84,15 @@ fn main() -> Result<()> {
         }
         Some(("rm", matches)) => {
             let key = matches.value_of("KEY").unwrap();
+            let addr = matches.value_of("addr").unwrap();
+            let addr = match addr.parse::<std::net::SocketAddr>() {
+                Ok(addr) => addr,
+                Err(_) => {
+                    eprintln!("Invalid address: {}", addr);
+                    exit(1);
+                }
+            };
+            println!("{}", addr);
 
             let mut store = KvStore::open(current_dir()?)?; 
             match store.remove(key.to_string()) {
@@ -58,7 +100,7 @@ fn main() -> Result<()> {
                 Err(KvsError::KeyNotFound) => {
                     println!("Key not found");
                     exit(1);
-                }
+                },
                 Err(err) => return Err(err)
             }
         }
