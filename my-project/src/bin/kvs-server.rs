@@ -31,7 +31,7 @@ fn main() -> Result<()> {
         Some("kvs") => "kvs",
         Some("sled") => "sled",
         None => "kvs",
-        Some(engine) =>  {
+        Some(engine) => {
             eprintln!("Invalid engine: {}", engine);
             exit(1);
         }
