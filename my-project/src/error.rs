@@ -20,8 +20,12 @@ pub enum KvsError {
     /// Sled error
     #[fail(display = "sled error: {}", _0)]
     Sled(#[cause] sled::Error),
+    /// Key or value is invalid UTF-8 sequence
     #[fail(display = "UTF-8 error: {}", _0)]
     Utf8(#[cause] FromUtf8Error),
+    /// Error with a string message
+    #[fail(display = "{}", _0)]
+    StringError(String),
 }
 
 impl From<io::Error> for KvsError {
