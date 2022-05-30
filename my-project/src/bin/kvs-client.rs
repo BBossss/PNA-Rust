@@ -1,7 +1,7 @@
-use std::{process::exit, env::current_dir};
+use std::{process::exit};
 
 use clap::{Arg, Command, arg};
-use kvs::{KvStore, Result, KvsError};
+use kvs::{ Result, KvsError, KvsClient };
 
 fn main() -> Result<()> {
     let matches = Command::new(env!("CARGO_PKG_NAME"))
@@ -57,10 +57,9 @@ fn main() -> Result<()> {
                     exit(1);
                 }
             };
-            println!("{}", addr);
 
-            let mut store = KvStore::open(current_dir()?)?;
-            store.set(key.to_string(), value.to_string())?;
+            let mut client = KvsClient::connect(addr)?;
+            client.set(key.to_string(), value.to_string())?;
         }
         Some(("get", matches)) => {
             let key = matches.value_of("KEY").unwrap();
@@ -72,10 +71,9 @@ fn main() -> Result<()> {
                     exit(1);
                 }
             };
-            println!("{}", addr);
 
-            let mut store = KvStore::open(current_dir()?)?;
-            if let Some(value) = store.get(key.to_string())? {
+            let mut client = KvsClient::connect(addr)?;
+            if let Some(value) = client.get(key.to_string())? {
                 println!("{}", value);
             } else {
                 println!("Key not found");
@@ -92,10 +90,9 @@ fn main() -> Result<()> {
                     exit(1);
                 }
             };
-            println!("{}", addr);
 
-            let mut store = KvStore::open(current_dir()?)?; 
-            match store.remove(key.to_string()) {
+            let mut client = KvsClient::connect(addr)?; 
+            match client.remove(key.to_string()) {
                 Ok(()) => {},
                 Err(KvsError::KeyNotFound) => {
                     println!("Key not found");

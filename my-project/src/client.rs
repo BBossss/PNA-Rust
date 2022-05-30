@@ -30,7 +30,7 @@ impl KvsClient {
         let resp = GetResponse::deserialize(&mut self.reader)?;
         match resp {
             GetResponse::Ok(value) => Ok(value),
-            GetResponse::Err(e) => Err(KvsError::StringError(e)),
+            GetResponse::Err(_) => Err(KvsError::StringError("Key not found".to_string())),
         }
     }
 
@@ -42,7 +42,7 @@ impl KvsClient {
         let resp = SetResponse::deserialize(&mut self.reader)?;
         match resp {
             SetResponse::Ok(_) => Ok(()),
-            SetResponse::Err(e) => Err(KvsError::StringError(e)),
+            SetResponse::Err(_) => Err(KvsError::StringError("Key not found".to_string())),
         }
     }
 
@@ -54,7 +54,7 @@ impl KvsClient {
         let resp = RemoveResponse::deserialize(&mut self.reader)?;
         match resp {
             RemoveResponse::Ok(_) => Ok(()),
-            RemoveResponse::Err(e) => Err(KvsError::StringError(e)),
+            RemoveResponse::Err(_) => Err(KvsError::StringError("Key not found".to_string())),
         }
     }
 }

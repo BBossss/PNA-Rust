@@ -182,7 +182,7 @@ impl KvsEngine for KvStore {
             self.writer.flush()?;
 
             if let Command::Remove { key} = cmd {
-                let old_cmd = self.index.remove(&key).expect("key not found");
+                let old_cmd = self.index.remove(&key).expect("Key not found");
                 self.uncompacted += old_cmd.len;
             }
             Ok(())

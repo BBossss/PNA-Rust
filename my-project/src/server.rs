@@ -1,5 +1,5 @@
 use std::{net::{ToSocketAddrs, TcpListener, TcpStream}, io::{BufReader, BufWriter, Write}};
-use crate::{KvsEngine, KvsError, Result, Request, GetResponse, SetResponse, RemoveResponse};
+use crate::{KvsEngine, Result, Request, GetResponse, SetResponse, RemoveResponse};
 use log::error;
 use serde_json::Deserializer;
 
